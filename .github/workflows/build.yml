@@ -1,0 +1,82 @@
+name: Build Windows & Linux Artifacts
+
+on:
+  push:
+    tags:
+      - 'v*'          # build when you push a version tag like v2.0.0
+  workflow_dispatch:  # or trigger manually from Actions
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip wheel setuptools
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --windowed `
+            --name StarProgrammer `
+            --hidden-import matplotlib.backends.backend_qt5agg `
+            --hidden-import matplotlib.backends.backend_qtagg `
+            --collect-all matplotlib `
+            --collect-all PyQt5 `
+            --version-file version_info.txt `
+            StarProgrammer_LightCurve_GUI.py
+          Compress-Archive -Path dist\StarProgrammer\* -DestinationPath StarProgrammer_Windows_x64.zip
+
+      - name: Build (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pyinstaller \
+            --noconfirm \
+            --windowed \
+            --name StarProgrammer \
+            --hidden-import matplotlib.backends.backend_qt5agg \
+            --hidden-import matplotlib.backends.backend_qtagg \
+            --collect-all matplotlib \
+            --collect-all PyQt5 \
+            StarProgrammer_LightCurve_GUI.py
+          tar -czf StarProgrammer_Linux_x64.tar.gz -C dist/StarProgrammer .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-artifacts
+          path: |
+            StarProgrammer_Windows_x64.zip
+            StarProgrammer_Linux_x64.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/StarProgrammer_Windows_x64.zip
+            artifacts/**/StarProgrammer_Linux_x64.tar.gz
