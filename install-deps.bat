@@ -1,59 +1,74 @@
 @echo off
-setlocal
+setlocal ENABLEDELAYEDEXPANSION
 
-echo ================================================
-echo   Installing StarProgrammer Dependencies
-echo ================================================
+:: always work from this folder
+cd /d "%~dp0"
 
-REM --- Find Python (prefer py launcher for 3.11) ---
-set "PYCMD="
-where py >nul 2>&1
-if %ERRORLEVEL%==0 (
-  set "PYCMD=py -3.11"
-) else (
-  where python >nul 2>&1
-  if %ERRORLEVEL%==0 (
-    set "PYCMD=python"
-  )
+echo.
+echo === Star Programmer + Light-Curve GUI — Windows Setup ===
+echo This will create a local .venv in: %CD%
+echo.
+
+:: Find Python 3 (prefer the py launcher)
+where py >nul 2>&1 && set "PY=py -3"
+if not defined PY (
+  where python >nul 2>&1 && set "PY=python"
 )
-
-if not defined PYCMD (
-  echo [X] Python not found. Install Python 3.11 (64-bit) from https://www.python.org
+if not defined PY (
+  echo Python 3 not found.
+  echo Please install from https://www.python.org/downloads/windows/ (check "Add Python to PATH"), then run this again.
   pause
   exit /b 1
 )
 
-echo [*] Using Python: %PYCMD%
-
-REM --- Create venv if missing ---
-if not exist .venv\Scripts\python.exe (
-  echo [*] Creating virtual environment...
-  %PYCMD% -m venv .venv
+:: Create venv if missing
+if not exist ".venv" (
+  echo Creating virtual environment .venv ...
+  %PY% -m venv .venv
+  if errorlevel 1 (
+    echo Failed to create virtual environment.
+    pause & exit /b 1
+  )
 )
 
-REM --- Upgrade pip ---
-echo [*] Upgrading pip...
-.venv\Scripts\python.exe -m pip install --upgrade pip wheel setuptools
+echo Upgrading pip/setuptools/wheel ...
+call ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
 
-REM --- Install required packages ---
-echo [*] Installing dependencies...
-.venv\Scripts\python.exe -m pip install ^
-  "numpy==1.24.4" ^
-  "scipy==1.15.3" ^
-  "matplotlib==3.8.4" ^
-  "PyQt5>=5.15" ^
-  pyserial
-
-if %ERRORLEVEL%==0 (
-  echo.
-  echo [✓] Dependencies installed successfully!
-  echo To activate the environment, run:
-  echo    .venv\Scripts\activate
-  echo Then start your program with:
-  echo    python StarProgrammer_LightCurve_GUI.py
+:: Install deps
+if exist "requirements.txt" (
+  echo Installing dependencies from requirements.txt ...
+  call ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 ) else (
-  echo [X] Something went wrong during installation.
+  echo requirements.txt not found. Installing common deps ...
+  call ".venv\Scripts\python.exe" -m pip install pyqt5 pyserial matplotlib
 )
+
+:: Write the launcher that users will double-click
+> "Run_StarProgrammer.cmd" (
+  echo @echo off
+  echo setlocal
+  echo cd /d "%%~dp0"
+  echo if not exist ".venv\Scripts\pythonw.exe" (
+  echo ^  echo Setting up environment ...
+  echo ^  call "%%~dp0install-deps.bat"
+  echo )
+  echo call ".venv\Scripts\pythonw.exe" "StarProgrammer_LightCurve_GUI.py" %%*
+)
+
+:: Optional: create a Desktop shortcut (ignore errors if PowerShell/COM is restricted)
+for /f "usebackq tokens=2,*" %%A in (`
+  reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Desktop 2^>nul ^| find "Desktop"
+`) do set DESK=%%B
+if not defined DESK set "DESK=%USERPROFILE%\Desktop"
+
+powershell -NoProfile -Command ^
+  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Resolve-Path '%DESK%').Path + '\Star Programmer.lnk');" ^
+  "$s.TargetPath='%(~dp0)Run_StarProgrammer.cmd'.Replace('%','%%');" ^
+  "$s.WorkingDirectory='%(~dp0)'.Replace('%','%%');" ^
+  "$s.IconLocation='%(~dp0)app.ico'.Replace('%','%%');" ^
+  "$s.Save()" 2>nul
 
 echo.
+echo ✅ Setup complete.
+echo 👉 Double-click Run_StarProgrammer.cmd (or the Desktop shortcut) to launch.
 pause
