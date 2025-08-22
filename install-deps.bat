@@ -1,74 +1,90 @@
 @echo off
 setlocal ENABLEDELAYEDEXPANSION
-
-:: always work from this folder
 cd /d "%~dp0"
 
-echo.
-echo === Star Programmer + Light-Curve GUI — Windows Setup ===
-echo This will create a local .venv in: %CD%
-echo.
+:: ─────────────────────────────────────────────────────────────
+:: App settings (edit these if your file name ever changes)
+set "MAIN=StarProgrammer_LightCurve_GUI.py"
+set "LAUNCHER=Run_StarProgrammer.cmd"
+set "SHORTCUT_NAME=Star Programmer.lnk"
 
-:: Find Python 3 (prefer the py launcher)
+:: Hard-coded dependency list (no requirements.txt needed)
+:: You can pin versions if you want, e.g. numpy==1.24.4 matplotlib==3.8.4
+set "PACKAGES=pyqt5 pyserial matplotlib numpy"
+:: ─────────────────────────────────────────────────────────────
+
+echo:
+echo === One-time setup: creating local Python environment ===
+echo Location: %CD%
+echo:
+
+:: Find Python 3
+set "PY="
 where py >nul 2>&1 && set "PY=py -3"
 if not defined PY (
   where python >nul 2>&1 && set "PY=python"
 )
 if not defined PY (
-  echo Python 3 not found.
-  echo Please install from https://www.python.org/downloads/windows/ (check "Add Python to PATH"), then run this again.
+  echo [!] Python 3 not found.
+  echo     Install from https://www.python.org/downloads/windows/  (check "Add Python to PATH")
+  echo     Then run this file again.
   pause
   exit /b 1
 )
 
-:: Create venv if missing
+:: Create virtual environment
 if not exist ".venv" (
-  echo Creating virtual environment .venv ...
+  echo [+] Creating virtual environment .venv ...
   %PY% -m venv .venv
   if errorlevel 1 (
-    echo Failed to create virtual environment.
+    echo [x] Failed to create virtual environment.
     pause & exit /b 1
   )
-)
-
-echo Upgrading pip/setuptools/wheel ...
-call ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
-
-:: Install deps
-if exist "requirements.txt" (
-  echo Installing dependencies from requirements.txt ...
-  call ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 ) else (
-  echo requirements.txt not found. Installing common deps ...
-  call ".venv\Scripts\python.exe" -m pip install pyqt5 pyserial matplotlib
+  echo [+] Using existing .venv
 )
 
-:: Write the launcher that users will double-click
-> "Run_StarProgrammer.cmd" (
+:: Upgrade pip/setuptools/wheel
+echo [+] Upgrading pip / setuptools / wheel ...
+call ".venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel
+if errorlevel 1 (
+  echo [x] Failed to upgrade pip / build tools.
+  pause & exit /b 1
+)
+
+:: Install hard-coded packages
+echo [+] Installing packages: %PACKAGES%
+call ".venv\Scripts\python.exe" -m pip install %PACKAGES%
+if errorlevel 1 (
+  echo [x] Dependency install failed.
+  echo     If you're on a restricted network, try again on a different connection.
+  pause & exit /b 1
+)
+
+:: Create the double-click launcher
+echo [+] Writing launcher: %LAUNCHER%
+> "%LAUNCHER%" (
   echo @echo off
   echo setlocal
   echo cd /d "%%~dp0"
-  echo if not exist ".venv\Scripts\pythonw.exe" (
-  echo ^  echo Setting up environment ...
-  echo ^  call "%%~dp0install-deps.bat"
-  echo )
-  echo call ".venv\Scripts\pythonw.exe" "StarProgrammer_LightCurve_GUI.py" %%*
+  echo if not exist ".venv\Scripts\pythonw.exe" call "%%~dp0install-deps.bat"
+  echo call ".venv\Scripts\pythonw.exe" "%%~dp0%MAIN%" %%*
 )
 
-:: Optional: create a Desktop shortcut (ignore errors if PowerShell/COM is restricted)
-for /f "usebackq tokens=2,*" %%A in (`
-  reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" /v Desktop 2^>nul ^| find "Desktop"
-`) do set DESK=%%B
-if not defined DESK set "DESK=%USERPROFILE%\Desktop"
+:: Optional: create a Desktop shortcut (best effort)
+echo [+] Creating desktop shortcut (optional) ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$P = (Resolve-Path '%CD%').Path;" ^
+  "$W = New-Object -ComObject WScript.Shell;" ^
+  "$D = [Environment]::GetFolderPath('Desktop');" ^
+  "$S = $W.CreateShortcut(Join-Path $D '%SHORTCUT_NAME%');" ^
+  "$S.TargetPath = Join-Path $P '%LAUNCHER%';" ^
+  "$S.WorkingDirectory = $P;" ^
+  "if (Test-Path (Join-Path $P 'app.ico')) { $S.IconLocation = (Join-Path $P 'app.ico'); }" ^
+  "$S.Save()" 2>nul
 
-powershell -NoProfile -Command ^
-  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Resolve-Path '%DESK%').Path + '\Star Programmer.lnk');" ^
-  "$s.TargetPath='%(~dp0)Run_StarProgrammer.cmd'.Replace('%','%%');" ^
-  "$s.WorkingDirectory='%(~dp0)'.Replace('%','%%');" ^
-  "$s.IconLocation='%(~dp0)app.ico'.Replace('%','%%');" ^
-  "$s.Save()" 2>nul
-
-echo.
+echo:
 echo ✅ Setup complete.
-echo 👉 Double-click Run_StarProgrammer.cmd (or the Desktop shortcut) to launch.
+echo 👉 Double-click %LAUNCHER% (or use the desktop shortcut) to launch the app.
+echo:
 pause
